@@ -1,0 +1,12 @@
+.{
+    .name = .zsflt,
+    .version = "0.0.0",
+    .fingerprint = 0xdeb0261d6da290fe, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.14.1",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
