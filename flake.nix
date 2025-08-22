@@ -1,7 +1,7 @@
 {
   description = "A Nix-flake-based Zig development environment";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable-small";
 
   outputs = { nixpkgs, ... }:
     let
@@ -13,7 +13,7 @@
     {
       devShells = forEachSupportedSystem ({ pkgs }: {
         default = pkgs.mkShell {
-          packages = with pkgs; [ zig lldb ];
+          packages = with pkgs; [ zig_0_15 lldb ];
         };
       });
     };
