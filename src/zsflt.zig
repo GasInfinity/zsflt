@@ -1,5 +1,5 @@
 pub fn Float(comptime exponent_bits: u16, comptime mantissa_bits: u16) type {
-    return packed struct {
+    return packed struct(std.meta.Int(.unsigned, 1 + exponent_bits + mantissa_bits)) {
         const Flt = @This();
         pub const Mantissa = std.meta.Int(.unsigned, mantissa_bits);
         pub const Exponent = std.meta.Int(.signed, exponent_bits);
@@ -54,7 +54,7 @@ pub fn Float(comptime exponent_bits: u16, comptime mantissa_bits: u16) type {
 
                     return .ofFloat(o_exponent_bits, o_mantissa_bits, value);
                 },
-                else => @compileError(std.fmt.comptimePrint("cannot compute nearest floating point representation for {s}", .{@tagName(std.meta.activeTag(value_ty_info))})),
+                else => @compileError(std.fmt.comptimePrint("cannot compute nearest floating point representation for {t}", .{std.meta.activeTag(value_ty_info)})),
             };
         }
 
@@ -109,6 +109,58 @@ pub fn Float(comptime exponent_bits: u16, comptime mantissa_bits: u16) type {
     };
 }
 
+pub fn Fixed(comptime signedness: std.builtin.Signedness, comptime integer_bits: u16, comptime fractional_bits: u16) type {
+    const sign_bit = @intFromBool(signedness == .signed);
+    const FixInt = std.meta.Int(signedness, sign_bit + integer_bits + fractional_bits);
+
+    return packed struct(FixInt) {
+        const Fix = @This();
+
+        pub const Fractional = std.meta.Int(.unsigned, fractional_bits);
+        pub const Integer = std.meta.Int(.unsigned, integer_bits);
+        pub const Sign = std.meta.Int(.unsigned, sign_bit);
+
+        fractional: Fractional,
+        integer: Integer,
+        sign: Sign,
+
+        pub fn ofSaturating(value: anytype) Fix {
+            const ValueType = @TypeOf(value);
+            const value_ty_info = @typeInfo(ValueType);
+
+            return sw: switch (value_ty_info) {
+                .comptime_int => .ofSaturating(@as(f128, value)),
+                .comptime_float => .ofSaturating(@as(f128, value)),
+                .float => |ty| {
+                    const FloatType = std.meta.Float(ty.bits);
+                    const flt_value: FloatType = value;
+                    
+                    if(signedness == .unsigned) std.debug.assert(flt_value >= 0);
+
+                    const scale: FloatType = @floatFromInt(1 << fractional_bits);
+                    const scaled: FloatType = @round(flt_value * scale);
+
+                    break :sw if(scaled >= std.math.maxInt(FixInt))
+                        @bitCast(@as(FixInt, std.math.maxInt(FixInt)))
+                    else if(signedness == .signed and scaled <= std.math.minInt(FixInt))
+                        @bitCast(@as(FixInt, std.math.minInt(FixInt)))
+                    else @bitCast(@as(FixInt, @intFromFloat(scaled)));
+                },
+                // TODO: Convert between fixed-points
+                else => @compileError(std.fmt.comptimePrint("cannot compute nearest floating point representation for {t}", .{std.meta.activeTag(value_ty_info)})),
+            };
+        }
+
+        pub fn add(a: Fix, b: Fix) Fix {
+            return @bitCast(@as(FixInt, @bitCast(a)) + @as(FixInt, @bitCast(b)));
+        }
+
+        pub fn sub(a: Fix, b: Fix) Fix {
+            return @bitCast(@as(FixInt, @bitCast(a)) - @as(FixInt, @bitCast(b)));
+        }
+    };
+}
+
 const testing = std.testing;
 
 fn testBuiltinConversion(comptime A: type, comptime B: type, comptime AT: type, comptime BT: type, value: AT) !void {
@@ -133,6 +185,21 @@ test Float {
     try testBuiltinConversion(F64, F32, f64, f32, 8000000.8234567);
     try testBuiltinConversion(F64, F16, f64, f16, 80.8234);
     try testBuiltinConversion(F16, F32, f16, f32, 8.12234);
+}
+
+test Fixed {
+    const UQ4_4 = Fixed(.unsigned, 4, 4);
+    const Q3_4 = Fixed(.signed, 3, 4);
+
+    const UQ0_11 = Fixed(.unsigned, 0, 11);
+
+    try testing.expectEqual(@as(Q3_4, @bitCast(@as(u8, 0b0011_1000))), Q3_4.ofSaturating(3.5)); // -3.5 -> -3.5
+    try testing.expectEqual(@as(Q3_4, @bitCast(@as(u8, 0b1000_0100))), Q3_4.ofSaturating(-7.742)); // -7.742 -> -7.750
+    try testing.expectEqual(@as(Q3_4, @bitCast(@as(u8, 0b1110_0100))), Q3_4.ofSaturating(-1.742)); // -1.742 -> -1.750
+
+    try testing.expectEqual(@as(UQ4_4, @bitCast(@as(u8, 0b1111_1010))), UQ4_4.ofSaturating(15.620)); // 15.620 -> 15.625
+
+    try testing.expectEqual(@as(UQ0_11, @bitCast(@as(u11, 0b11111111111))), UQ0_11.ofSaturating(1.0)); // 1.0 -> 0.99951171875
 }
 
 const std = @import("std");

@@ -1,6 +1,7 @@
 # zsflt
 
-an ieee soft-float library
+An ieee soft-float + fixed point library
 
 ## Implemented operations:
-- conversion between different floating point types with nearest-even rounding (TODO: denormal handling)
+- nearest-event rounding conversion between different floating point types (TODO: denormal handling)
+- saturating conversion of integers/floating point types to fixed-point values.

@@ -3,13 +3,11 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     _ = b.addModule("zsflt", .{ .root_source_file = b.path("src/zsflt.zig") });
 
-    const tests_mod = b.createModule(.{
-        .root_source_file = b.path("src/zsflt.zig"),
-        .target = b.resolveTargetQuery(.{})
-    });
-
     const zsflt_unit_tests = b.addTest(.{
-        .root_module = tests_mod,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/zsflt.zig"),
+            .target = b.resolveTargetQuery(.{})
+        }),
     });
 
     const run_zsflt_unit_tests = b.addRunArtifact(zsflt_unit_tests);
