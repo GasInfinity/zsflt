@@ -5,6 +5,7 @@ pub fn Float(comptime exponent_bits: u16, comptime mantissa_bits: u16) type {
         pub const Exponent = std.meta.Int(.signed, exponent_bits);
         pub const BiasedExponent = enum(std.meta.Int(.unsigned, exponent_bits)) {
             denormal = 0,
+            min_normal = 1,
             zero = (1 << (exponent_bits - 1)) - 1,
             infinite = (1 << exponent_bits) - 1,
             _, 
@@ -63,47 +64,58 @@ pub fn Float(comptime exponent_bits: u16, comptime mantissa_bits: u16) type {
                 return other;
             }
             
-            return switch (other.exponent) {
-                .denormal => if(other.mantissa == 0)
-                    .{ .mantissa = 0, .exponent = .denormal, .sign = other.sign }
-                else 
-                    @panic("TODO: subnormal floating values"),
+            return flt: switch (other.exponent) {
+                .denormal => switch(comptime std.math.order(o_exponent_bits, @bitSizeOf(Flt.Exponent))) {
+                    .gt => .{ .mantissa = 0, .exponent = .denormal, .sign = other.sign },
+                    .eq => .{ .mantissa = nearestMantissaRepresentation(@TypeOf(other.mantissa), other.mantissa), .exponent = .denormal, .sign = other.sign },
+                    // TODO: denormal -> normal
+                    .lt => .{ .mantissa = 0, .exponent = .denormal, .sign = other.sign }, 
+                },
                 .infinite => .{
                     .mantissa = if(other.mantissa != 0) 1 else 0,
                     .exponent = .infinite,
                     .sign = other.sign,
                 },
-                else => flt: {
+                _, .min_normal, .zero => {
                     const unbiased = other.exponent.unbias();
-                    const unbiased_converted = std.math.lossyCast(Flt.Exponent, unbiased);
+                    
+                    if(unbiased > std.math.maxInt(Flt.Exponent)) break :flt .{ .mantissa = 0, .exponent = .infinite, .sign = other.sign };
 
-                    break :flt switch (std.math.order(unbiased, unbiased_converted)) {
-                        .lt => .{ .mantissa = 0, .exponent = .infinite, .sign = 1 - other.sign },
-                        .gt => .{ .mantissa = 0, .exponent = .infinite, .sign = other.sign },
-                        .eq => flt_eq: {
-                            const biased_converted: Flt.BiasedExponent = .bias(unbiased_converted);
-                            const mantissa_converted: Flt.Mantissa = switch (comptime std.math.order(o_mantissa_bits, @bitSizeOf(Flt.Mantissa))) {
-                                .eq => @bitCast(other.mantissa),
-                                .lt => @as(Flt.Mantissa, other.mantissa) << (@bitSizeOf(Flt.Mantissa) - o_mantissa_bits),
-                                .gt => roundNearestEven(@TypeOf(other.mantissa), other.mantissa, o_mantissa_bits - @bitSizeOf(Flt.Mantissa)),
-                            };
+                    if(unbiased <= std.math.minInt(Flt.Exponent)) {
+                        const OtherMantissa = @TypeOf(other.mantissa);
+                        const mantissa_bias = (BiasedExponent.min_normal.unbias() - unbiased);
+                        const biased_mantissa = std.math.shr(@TypeOf(other.mantissa), other.mantissa, mantissa_bias) | std.math.shl(OtherMantissa, 1, @bitSizeOf(OtherMantissa) - mantissa_bias);
+                        break :flt .{ .mantissa = nearestMantissaRepresentation(@TypeOf(biased_mantissa), biased_mantissa), .exponent = .denormal, .sign = other.sign };
+                    }
 
-                            break :flt_eq .{ .mantissa = mantissa_converted, .exponent = biased_converted, .sign = other.sign };
-                        }
-                    };
+                    const unbiased_converted: Flt.Exponent = @intCast(unbiased);
+                    const biased_converted: BiasedExponent = .bias(unbiased_converted);
+
+                    break :flt .{ .mantissa = nearestMantissaRepresentation(@TypeOf(other.mantissa), other.mantissa), .exponent = biased_converted, .sign = other.sign };
                 },
             };
         }
 
-        fn roundNearestEven(comptime T: type, mantissa: T, comptime discarded_mantisa_bits: u16) Flt.Mantissa {
-            const DiscardedInt = std.meta.Int(.unsigned, discarded_mantisa_bits);
-            const lsb_bit = @as(T, 1) << @intCast(discarded_mantisa_bits);
-            const round_bit = @as(DiscardedInt, 1) << @intCast(discarded_mantisa_bits - 1);
-            const sticky_mask = std.math.maxInt(std.meta.Int(.unsigned, discarded_mantisa_bits - 1));
+        fn nearestMantissaRepresentation(comptime T: type, other: T) Flt.Mantissa {
+            return switch (comptime std.math.order(@bitSizeOf(T), @bitSizeOf(Flt.Mantissa))) {
+                .eq => @bitCast(other),
+                .lt => @as(Flt.Mantissa, other) << (@bitSizeOf(Flt.Mantissa) - @bitSizeOf(T)),
+                .gt => roundNearestEven(T, other),
+            };
+        }
 
-            const truncated: Flt.Mantissa = @truncate(mantissa >> @intCast(discarded_mantisa_bits));
+        fn roundNearestEven(comptime T: type, mantissa: T) Flt.Mantissa {
+            std.debug.assert(@bitSizeOf(T) > @bitSizeOf(Flt.Mantissa));
+
+            const discarded_mantissa_bits = @bitSizeOf(T) - @bitSizeOf(Flt.Mantissa);
+
+            const DiscardedInt = std.meta.Int(.unsigned, discarded_mantissa_bits);
+            const lsb_bit = @as(T, 1) << @intCast(discarded_mantissa_bits);
+            const round_bit = @as(DiscardedInt, 1) << @intCast(discarded_mantissa_bits - 1);
+            const sticky_mask = std.math.maxInt(std.meta.Int(.unsigned, discarded_mantissa_bits - 1));
+
+            const truncated: Flt.Mantissa = @truncate(mantissa >> @intCast(discarded_mantissa_bits));
             const round = @intFromBool(!((mantissa & round_bit == 0) or ((mantissa & sticky_mask) == 0 and (mantissa & lsb_bit) == 0)));
-
             return truncated +% round;
         }
     };
@@ -163,7 +175,7 @@ pub fn Fixed(comptime signedness: std.builtin.Signedness, comptime integer_bits:
 
 const testing = std.testing;
 
-fn testBuiltinConversion(comptime A: type, comptime B: type, comptime AT: type, comptime BT: type, value: AT) !void {
+fn testComparingHardwareConversion(comptime A: type, comptime B: type, comptime AT: type, comptime BT: type, value: AT) !void {
     const zsflt_bitcasted: A = .of(value);
     const zsflt_converted: B = .of(zsflt_bitcasted);
 
@@ -181,10 +193,23 @@ test Float {
     const F32 = Float(std.math.floatExponentBits(f32), std.math.floatMantissaBits(f32));
     const F16 = Float(std.math.floatExponentBits(f16), std.math.floatMantissaBits(f16));
     
-    try testBuiltinConversion(F32, F16, f32, f16, 1.2345678);
-    try testBuiltinConversion(F64, F32, f64, f32, 8000000.8234567);
-    try testBuiltinConversion(F64, F16, f64, f16, 80.8234);
-    try testBuiltinConversion(F16, F32, f16, f32, 8.12234);
+    try testComparingHardwareConversion(F32, F16, f32, f16, 655445.348);
+    try testComparingHardwareConversion(F32, F16, f32, f16, 65545.2446);
+    try testComparingHardwareConversion(F32, F16, f32, f16, 50545.2467);
+    try testComparingHardwareConversion(F32, F16, f32, f16, 20000.008);
+    try testComparingHardwareConversion(F32, F16, f32, f16, 0.00008);
+    try testComparingHardwareConversion(F32, F16, f32, f16, 0.2342);
+
+    try testComparingHardwareConversion(F32, F16, f32, f16, 0.00002);
+    try testComparingHardwareConversion(F32, F16, f32, f16, 0.0000002);
+    try testComparingHardwareConversion(F32, F16, f32, f16, 0.0000000002);
+
+    try testComparingHardwareConversion(F32, F16, f32, f16, std.math.inf(f32));
+    try testComparingHardwareConversion(F32, F16, f32, f16, -std.math.inf(f32));
+
+    try testComparingHardwareConversion(F64, F32, f64, f32, 8000000.8234567);
+    try testComparingHardwareConversion(F64, F16, f64, f16, 80.8234);
+    try testComparingHardwareConversion(F16, F32, f16, f32, 8.12234);
 }
 
 test Fixed {
@@ -202,4 +227,5 @@ test Fixed {
     try testing.expectEqual(@as(UQ0_11, @bitCast(@as(u11, 0b11111111111))), UQ0_11.ofSaturating(1.0)); // 1.0 -> 0.99951171875
 }
 
+const builtin = @import("builtin");
 const std = @import("std");
