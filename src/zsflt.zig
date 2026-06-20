@@ -124,13 +124,15 @@ pub fn Float(comptime exponent_bits: u16, comptime mantissa_bits: u16) type {
 pub fn Fixed(comptime signedness: std.builtin.Signedness, comptime integer_bits: u16, comptime fractional_bits: u16) type {
     const sign_bit = @intFromBool(signedness == .signed);
     const FixInt = std.meta.Int(signedness, sign_bit + integer_bits + fractional_bits);
+    const AbsoluteFixInt = std.meta.Int(.unsigned, sign_bit + integer_bits + fractional_bits);
 
     return packed struct(FixInt) {
         const Fix = @This();
 
-        pub const Fractional = std.meta.Int(.unsigned, fractional_bits);
-        pub const Integer = std.meta.Int(.unsigned, integer_bits);
-        pub const Sign = std.meta.Int(.unsigned, sign_bit);
+        pub const Fractional = @Int(.unsigned, fractional_bits);
+        pub const Integer = @Int(.unsigned, integer_bits);
+        pub const Sign = @Int(.unsigned, sign_bit);
+        pub const FullInteger = @Int(.unsigned, sign_bit + integer_bits);
 
         fractional: Fractional,
         integer: Integer,
@@ -169,6 +171,35 @@ pub fn Fixed(comptime signedness: std.builtin.Signedness, comptime integer_bits:
 
         pub fn sub(a: Fix, b: Fix) Fix {
             return @bitCast(@as(FixInt, @bitCast(a)) - @as(FixInt, @bitCast(b)));
+        }
+
+        pub fn format(fix: Fix, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            const fix_int: FixInt = @bitCast(fix);
+            const fix_abs: AbsoluteFixInt = switch (signedness) {
+                .signed => if (fix_int < 0) blk: {
+                    try w.writeByte('-');
+                    break :blk @abs(fix_int);
+                } else fix_int,
+                .unsigned => fix_int,
+            };
+
+            const boolMask = std.math.boolMask;
+            const integer: Integer = if (integer_bits > 0) @intCast(fix_abs >> fractional_bits) else 0;
+            const fractional: Fractional = if (fractional_bits > 0) @intCast(fix_abs & boolMask(Fractional, true)) else 0;
+            try w.print("{d}", .{integer});
+
+            if (fractional != 0) {
+                try w.writeByte('.');
+
+                var current: std.math.IntFittingRange(0, std.math.maxInt(Fractional) * 10) = fractional;
+                while (current > 0) {
+                    const decimal = current * 10;
+                    const digit = decimal >> fractional_bits;
+                    current = decimal & boolMask(Fractional, true);
+
+                    try w.writeByte('0' + digit);
+                }
+            }
         }
     };
 }
@@ -218,13 +249,25 @@ test Fixed {
 
     const UQ0_11 = Fixed(.unsigned, 0, 11);
 
-    try testing.expectEqual(@as(Q3_4, @bitCast(@as(u8, 0b0011_1000))), Q3_4.ofSaturating(3.5)); // -3.5 -> -3.5
-    try testing.expectEqual(@as(Q3_4, @bitCast(@as(u8, 0b1000_0100))), Q3_4.ofSaturating(-7.742)); // -7.742 -> -7.750
-    try testing.expectEqual(@as(Q3_4, @bitCast(@as(u8, 0b1110_0100))), Q3_4.ofSaturating(-1.742)); // -1.742 -> -1.750
+    const @"3.5 Q3_4": Q3_4 = @bitCast(@as(u8, 0b0011_1000));
+    try testing.expectEqual(@"3.5 Q3_4", Q3_4.ofSaturating(3.5)); // 3.5 -> 3.5
+    try testing.expectEqualStrings("3.5", std.fmt.comptimePrint("{f}", .{@"3.5 Q3_4"}));
 
-    try testing.expectEqual(@as(UQ4_4, @bitCast(@as(u8, 0b1111_1010))), UQ4_4.ofSaturating(15.620)); // 15.620 -> 15.625
+    const @"-7.75 Q3_4": Q3_4 = @bitCast(@as(u8, 0b1000_0100));
+    try testing.expectEqual(@"-7.75 Q3_4", Q3_4.ofSaturating(-7.742)); // -7.742 -> -7.750
+    try testing.expectEqualStrings("-7.75", std.fmt.comptimePrint("{f}", .{@"-7.75 Q3_4"}));
 
-    try testing.expectEqual(@as(UQ0_11, @bitCast(@as(u11, 0b11111111111))), UQ0_11.ofSaturating(1.0)); // 1.0 -> 0.99951171875
+    const @"-1.75 Q3_4": Q3_4 = @bitCast(@as(u8, 0b1110_0100));
+    try testing.expectEqual(@"-1.75 Q3_4", Q3_4.ofSaturating(-1.742)); // -1.742 -> -1.750
+    try testing.expectEqualStrings("-1.75", std.fmt.comptimePrint("{f}", .{@"-1.75 Q3_4"}));
+
+    const @"15.625 UQ4_4": UQ4_4 = @bitCast(@as(u8, 0b1111_1010));
+    try testing.expectEqual(@"15.625 UQ4_4", UQ4_4.ofSaturating(15.620)); // 15.620 -> 15.625
+    try testing.expectEqualStrings("15.625", std.fmt.comptimePrint("{f}", .{@"15.625 UQ4_4"}));
+
+    const @"0.99951171875 UQ0_11": UQ0_11 = @bitCast(@as(u11, 0b11111111111));
+    try testing.expectEqual(@"0.99951171875 UQ0_11", UQ0_11.ofSaturating(1.0)); // 1.0 -> 0.99951171875
+    try testing.expectEqualStrings("0.99951171875", std.fmt.comptimePrint("{f}", .{@"0.99951171875 UQ0_11"}));
 }
 
 const builtin = @import("builtin");
