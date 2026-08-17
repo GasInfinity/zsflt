@@ -179,7 +179,7 @@ pub fn Fixed(comptime signedness: std.builtin.Signedness, comptime integer_bits:
                 .signed => if (fix_int < 0) blk: {
                     try w.writeByte('-');
                     break :blk @abs(fix_int);
-                } else fix_int,
+                } else @intCast(fix_int),
                 .unsigned => fix_int,
             };
 
@@ -194,7 +194,7 @@ pub fn Fixed(comptime signedness: std.builtin.Signedness, comptime integer_bits:
                 var current: std.math.IntFittingRange(0, std.math.maxInt(Fractional) * 10) = fractional;
                 while (current > 0) {
                     const decimal = current * 10;
-                    const digit = decimal >> fractional_bits;
+                    const digit: u8 = @intCast(decimal >> fractional_bits);
                     current = decimal & boolMask(Fractional, true);
 
                     try w.writeByte('0' + digit);
@@ -248,6 +248,7 @@ test Fixed {
     const Q3_4 = Fixed(.signed, 3, 4);
 
     const UQ0_11 = Fixed(.unsigned, 0, 11);
+    const Q1_11 = Fixed(.signed, 1, 11);
 
     const @"3.5 Q3_4": Q3_4 = @bitCast(@as(u8, 0b0011_1000));
     try testing.expectEqual(@"3.5 Q3_4", Q3_4.ofSaturating(3.5)); // 3.5 -> 3.5
@@ -268,6 +269,10 @@ test Fixed {
     const @"0.99951171875 UQ0_11": UQ0_11 = @bitCast(@as(u11, 0b11111111111));
     try testing.expectEqual(@"0.99951171875 UQ0_11", UQ0_11.ofSaturating(1.0)); // 1.0 -> 0.99951171875
     try testing.expectEqualStrings("0.99951171875", std.fmt.comptimePrint("{f}", .{@"0.99951171875 UQ0_11"}));
+
+    const @"1.99951171875 Q1_11": Q1_11 = @bitCast(@as(u13, 0b0111111111111));
+    try testing.expectEqual(@"1.99951171875 Q1_11", Q1_11.ofSaturating(2.0)); // 1.0 -> 0.99951171875
+    try testing.expectEqualStrings("1.99951171875", std.fmt.comptimePrint("{f}", .{@"1.99951171875 Q1_11"}));
 }
 
 const builtin = @import("builtin");
