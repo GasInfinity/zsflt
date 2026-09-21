@@ -138,7 +138,7 @@ pub fn Fixed(comptime signedness: std.builtin.Signedness, comptime integer_bits:
         integer: Integer,
         sign: Sign,
 
-        pub fn ofSaturating(value: anytype) Fix {
+        pub inline fn ofSaturating(value: anytype) Fix {
             const ValueType = @TypeOf(value);
             const value_ty_info = @typeInfo(ValueType);
 
