@@ -3,8 +3,8 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    zig.url = "github:silversquirl/zig-flake/compat";
-    zls.url = "github:zigtools/zls/0.16.x";
+    zig.url = "github:silversquirl/zig-flake";
+    zls.url = "github:zigtools/zls";
 
     zig.inputs.nixpkgs.follows = "nixpkgs";
     zls.inputs.nixpkgs.follows = "nixpkgs";
@@ -25,7 +25,7 @@
       devShells = forEachSupportedSystem ({ pkgs, zpkgs, zlspkgs }: {
         default = pkgs.mkShell {
           packages = with pkgs; [
-            zpkgs.zig_0_16_0
+            zpkgs.zig_0_17_0
             zlspkgs.zls 
             lldb
           ];

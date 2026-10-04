@@ -1,9 +1,9 @@
 pub fn Float(comptime exponent_bits: u16, comptime mantissa_bits: u16) type {
-    return packed struct(std.meta.Int(.unsigned, 1 + exponent_bits + mantissa_bits)) {
+    return packed struct(@Int(.unsigned, 1 + exponent_bits + mantissa_bits)) {
         const Flt = @This();
-        pub const Mantissa = std.meta.Int(.unsigned, mantissa_bits);
-        pub const Exponent = std.meta.Int(.signed, exponent_bits);
-        pub const BiasedExponent = enum(std.meta.Int(.unsigned, exponent_bits)) {
+        pub const Mantissa = @Int(.unsigned, mantissa_bits);
+        pub const Exponent = @Int(.signed, exponent_bits);
+        pub const BiasedExponent = enum(@Int(.unsigned, exponent_bits)) {
             denormal = 0,
             min_normal = 1,
             zero = (1 << (exponent_bits - 1)) - 1,
@@ -109,10 +109,10 @@ pub fn Float(comptime exponent_bits: u16, comptime mantissa_bits: u16) type {
 
             const discarded_mantissa_bits = @bitSizeOf(T) - @bitSizeOf(Flt.Mantissa);
 
-            const DiscardedInt = std.meta.Int(.unsigned, discarded_mantissa_bits);
+            const DiscardedInt = @Int(.unsigned, discarded_mantissa_bits);
             const lsb_bit = @as(T, 1) << @intCast(discarded_mantissa_bits);
             const round_bit = @as(DiscardedInt, 1) << @intCast(discarded_mantissa_bits - 1);
-            const sticky_mask = std.math.maxInt(std.meta.Int(.unsigned, discarded_mantissa_bits - 1));
+            const sticky_mask = std.math.maxInt(@Int(.unsigned, discarded_mantissa_bits - 1));
 
             const truncated: Flt.Mantissa = @truncate(mantissa >> @intCast(discarded_mantissa_bits));
             const round = @intFromBool(!((mantissa & round_bit == 0) or ((mantissa & sticky_mask) == 0 and (mantissa & lsb_bit) == 0)));
@@ -123,8 +123,8 @@ pub fn Float(comptime exponent_bits: u16, comptime mantissa_bits: u16) type {
 
 pub fn Fixed(comptime signedness: std.builtin.Signedness, comptime integer_bits: u16, comptime fractional_bits: u16) type {
     const sign_bit = @intFromBool(signedness == .signed);
-    const FixInt = std.meta.Int(signedness, sign_bit + integer_bits + fractional_bits);
-    const AbsoluteFixInt = std.meta.Int(.unsigned, sign_bit + integer_bits + fractional_bits);
+    const FixInt = @Int(signedness, sign_bit + integer_bits + fractional_bits);
+    const AbsoluteFixInt = @Int(.unsigned, sign_bit + integer_bits + fractional_bits);
 
     return packed struct(FixInt) {
         const Fix = @This();
